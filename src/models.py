@@ -21,13 +21,27 @@ class ImageProcessResponse(BaseModel):
     height: int = Field(description="Height of the processed image")
 
 
+class ImageProcessError(BaseModel):
+    """Error details for a failed image processing."""
+
+    filename: str = Field(description="Name of the file that failed")
+    error: str = Field(description="Error message")
+
+
 class BatchProcessResponse(BaseModel):
     """Response model for batch image processing."""
 
     images: List[ImageProcessResponse] = Field(
-        description="List of processed image results"
+        description="List of successfully processed image results"
     )
-    total_processed: int = Field(description="Total number of images processed")
+    errors: List[ImageProcessError] = Field(
+        default_factory=list,
+        description="List of errors for failed image processing",
+    )
+    total_processed: int = Field(description="Total number of images successfully processed")
+    total_failed: int = Field(
+        default=0, description="Total number of images that failed to process"
+    )
 
 
 class HealthResponse(BaseModel):

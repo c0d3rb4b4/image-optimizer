@@ -1,6 +1,7 @@
 """Image operations for resize and composite."""
 import os
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
@@ -129,8 +130,6 @@ def process_image(
     settings = get_settings()
 
     # Open image from bytes
-    from io import BytesIO
-
     image = Image.open(BytesIO(image_data))
 
     # Resize and composite

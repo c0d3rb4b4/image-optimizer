@@ -1,11 +1,16 @@
 """FastAPI application for image-optimizer service."""
 import os
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from .config import get_settings
-from .models import BatchProcessResponse, HealthResponse, ImageProcessResponse
+from .models import (
+    BatchProcessResponse,
+    HealthResponse,
+    ImageProcessError,
+    ImageProcessResponse,
+)
 from .ops import process_image
 
 app = FastAPI(
@@ -24,7 +29,7 @@ async def health_check() -> HealthResponse:
 @app.post("/optimize", response_model=ImageProcessResponse)
 async def optimize_image(
     file: UploadFile = File(..., description="Image file to optimize"),
-    filename: str = None,
+    filename: Optional[str] = None,
 ) -> ImageProcessResponse:
     """
     Optimize a single image.
@@ -60,9 +65,11 @@ async def optimize_images_batch(
     Optimize multiple images in batch.
 
     Resizes and composites each image to 2560x1440, saves to Samba share,
-    and returns the paths to all processed images.
+    and returns the paths to all processed images. Continues processing
+    remaining files if one fails.
     """
     results = []
+    errors = []
 
     for file in files:
         try:
@@ -81,12 +88,19 @@ async def optimize_images_batch(
             results.append(ImageProcessResponse(path=path, width=width, height=height))
 
         except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Image processing failed for {file.filename}: {str(e)}",
+            errors.append(
+                ImageProcessError(
+                    filename=file.filename or "unknown",
+                    error=str(e),
+                )
             )
 
-    return BatchProcessResponse(images=results, total_processed=len(results))
+    return BatchProcessResponse(
+        images=results,
+        errors=errors,
+        total_processed=len(results),
+        total_failed=len(errors),
+    )
 
 
 if __name__ == "__main__":
