@@ -1,0 +1,31 @@
+name: Deploy Image Optimizer
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create samba directory
+        run: mkdir -p ./samba
+
+      - name: Build and start services
+        run: |
+          docker compose build
+          docker compose up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          sleep 10
+          docker compose ps

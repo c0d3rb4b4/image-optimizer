@@ -1,0 +1,41 @@
+services:
+  image-optimizer:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./samba:/mnt/samba
+    environment:
+      - OUTPUT_PATH=/mnt/samba
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - rabbitmq
+      - samba
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+  samba:
+    image: dperson/samba
+    ports:
+      - "445:445"
+      - "139:139"
+    volumes:
+      - ./samba:/mount
+    environment:
+      - SHARE=images;/mount;yes;no;no;all
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
