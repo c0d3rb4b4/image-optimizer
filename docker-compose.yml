@@ -9,6 +9,7 @@ services:
     env_file:
       - ./config/app.env
     volumes:
+      - ./config:/app/config:ro
       - /mnt/mediawall/mediawall/image-optimizer/images:/data/images
     labels:
       - "logging=promtail"
