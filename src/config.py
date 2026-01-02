@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     target_height: int = 1440
 
     # Samba/Output settings
-    output_path: str = "/mnt/samba"
+    output_path: str = "/mnt/mediawall/mediawall/image-optimizer/images"
 
     # RabbitMQ settings
     rabbitmq_host: str = "rabbitmq"
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     class Config:
         """Pydantic settings configuration."""
 
-        env_file = "/app/config/.env"
+        env_file = "/app/config/app.env"
         env_file_encoding = "utf-8"
 
 

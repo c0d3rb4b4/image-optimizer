@@ -13,6 +13,7 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: mediawall
       RABBITMQ_VHOST: /mediawall
+      OUTPUT_PATH: /mnt/mediawall/mediawall/image-optimizer/images
       IMAGE_ROOT: /data/images
     volumes:
       - /mnt/mediawall/mediawall/image-optimizer/images:/data/images
