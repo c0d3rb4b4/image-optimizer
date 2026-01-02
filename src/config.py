@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     rabbitmq_port: int = 5672
     rabbitmq_user: str = "guest"
     rabbitmq_password: str = "guest"
+    rabbitmq_vhost: str = "/"
 
     # API settings
     api_host: str = "0.0.0.0"
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
 
         env_file = "/app/config/app.env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra fields in env file
 
 
 @lru_cache
