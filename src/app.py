@@ -1,5 +1,7 @@
 """FastAPI application for image-optimizer service."""
+import logging
 import os
+import sys
 from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -13,11 +15,40 @@ from .models import (
 )
 from .ops import process_image
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Image Optimizer",
     description="HTTP API that resizes/composites images to 2560x1440 and saves to Samba share",
     version="1.0.0",
 )
+
+# Log settings on startup
+@app.on_event("startup")
+async def startup_event():
+    logger.info("=== Image Optimizer Starting ===")
+    settings = get_settings()
+    logger.info(f"Output path configured: {settings.output_path}")
+    logger.info(f"Checking if output path exists: {os.path.exists(settings.output_path)}")
+    logger.info(f"Checking if output path is writable: {os.access(settings.output_path, os.W_OK) if os.path.exists(settings.output_path) else 'N/A - path does not exist'}")
+    
+    # List mount points
+    logger.info("=== Mount points ===")
+    try:
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                if '/data' in line or '/mnt' in line:
+                    logger.info(line.strip())
+    except Exception as e:
+        logger.info(f"Could not read mounts: {e}")
 
 
 @app.get("/health", response_model=HealthResponse)
