@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     target_width: int = 2560
     target_height: int = 1440
 
-    # Samba/Output settings
-    output_path: str = "/mnt/mediawall/mediawall/image-optimizer/images"
+    # Samba/Output settings (container path, mounted from host)
+    output_path: str = "/data/images"
 
     # RabbitMQ settings
     rabbitmq_host: str = "rabbitmq"
