@@ -9,8 +9,12 @@ from typing import Optional
 from PIL import Image
 
 from .config import get_settings
+from .constants import (
+    DEFAULT_BACKGROUND_COLOR,
+    DEFAULT_JPEG_QUALITY,
+    OUTPUT_PATH,
+)
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
 
@@ -73,82 +77,36 @@ def resize_and_composite(
 
 def save_image(
     image: Image.Image,
-    output_dir: Optional[str] = None,
     filename: Optional[str] = None,
-    format: str = "JPEG",
-    quality: int = 95,
+    quality: Optional[int] = None,
 ) -> str:
     """
     Save processed image to the output directory.
 
     Args:
         image: PIL Image to save
-        output_dir: Directory to save to (default: from settings)
         filename: Output filename (default: generated UUID)
-        format: Image format (default: JPEG)
-        quality: JPEG quality (default: 95)
+        quality: JPEG quality (default: from settings or DEFAULT_JPEG_QUALITY)
 
     Returns:
         Full path to the saved image
     """
     settings = get_settings()
     
-    logger.info("=== save_image called ===")
-    logger.info(f"settings.output_path from config: {settings.output_path}")
-    logger.info(f"output_dir parameter: {output_dir}")
-    logger.info(f"filename parameter: {filename}")
-
-    if output_dir is None:
-        output_dir = settings.output_path
-        logger.info(f"output_dir was None, using settings.output_path: {output_dir}")
+    if quality is None:
+        quality = settings.jpeg_quality
 
     if filename is None:
-        ext = "jpg" if format.upper() == "JPEG" else format.lower()
-        filename = f"{uuid.uuid4()}.{ext}"
-        logger.info(f"filename was None, generated: {filename}")
+        filename = f"{uuid.uuid4()}.jpg"
 
     # Ensure output directory exists
-    logger.info(f"Creating directory if not exists: {output_dir}")
-    try:
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        logger.info(f"Directory exists/created: {Path(output_dir).exists()}")
-    except Exception as e:
-        logger.error(f"Failed to create directory {output_dir}: {e}")
-        raise
+    Path(OUTPUT_PATH).mkdir(parents=True, exist_ok=True)
 
     # Build full path
-    output_path = os.path.join(output_dir, filename)
-    logger.info(f"Full output path: {output_path}")
+    output_path = os.path.join(OUTPUT_PATH, filename)
 
     # Save image
-    save_kwargs = {}
-    if format.upper() == "JPEG":
-        save_kwargs["quality"] = quality
-        save_kwargs["optimize"] = True
-
-    logger.info(f"Saving image to: {output_path}")
-    try:
-        image.save(output_path, format=format, **save_kwargs)
-        logger.info(f"Image saved successfully")
-        
-        # Verify file exists after save
-        file_exists = os.path.exists(output_path)
-        logger.info(f"File exists after save: {file_exists}")
-        if file_exists:
-            file_size = os.path.getsize(output_path)
-            logger.info(f"File size: {file_size} bytes")
-        
-        # List directory contents
-        logger.info(f"Directory contents of {output_dir}:")
-        try:
-            for item in os.listdir(output_dir):
-                logger.info(f"  - {item}")
-        except Exception as e:
-            logger.error(f"Failed to list directory: {e}")
-            
-    except Exception as e:
-        logger.error(f"Failed to save image to {output_path}: {e}")
-        raise
+    image.save(output_path, format="JPEG", quality=quality, optimize=True)
 
     return output_path
 
@@ -177,9 +135,10 @@ def process_image(
         image,
         target_width=settings.target_width,
         target_height=settings.target_height,
+        background_color=DEFAULT_BACKGROUND_COLOR,
     )
 
-    # Save to samba mount
+    # Save to storage mount
     output_path = save_image(processed, filename=filename)
 
     return output_path, processed.width, processed.height

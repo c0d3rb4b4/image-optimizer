@@ -1,34 +1,30 @@
 # image-optimizer
 
-Image optimization microservice: accepts one or more images, resizes/center-crops them into a 2560×1440 frame, and writes results to a Samba-backed storage path.
+Image optimization microservice: accepts one or more images, resizes/center-crops them into a 2560×1440 frame, and writes results to mounted storage.
 
 ## Features
 
 - **Batch image processing** - Process single or multiple images in one request
 - **Center-crop with resize** - Intelligent resizing and centering to target dimensions
-- **Samba storage backend** - Direct integration with network-attached storage
+- **Input validation** - File type and size validation (max 50MB, common image formats)
 - **Health checks** - Built-in health monitoring
 - FastAPI REST API
-- Structured JSON logging (compatible with Loki/Promtail)
+- Structured logging (compatible with Loki/Promtail)
 - Docker containerized
 
 ## Configuration
 
+Only tuneable settings are exposed as environment variables. Internal paths are hardcoded.
+
 ### Environment Variables
 
 ```bash
-# Service settings
-APP_NAME=image-optimizer
-APP_VERSION=0.1.0
-DEBUG=false
+# Image processing settings
+TARGET_WIDTH=2560
+TARGET_HEIGHT=1440
+JPEG_QUALITY=95
 
-# Message queue
-RABBITMQ_HOST=192.168.68.83
-RABBITMQ_PORT=5672
-RABBITMQ_USER=guest
-RABBITMQ_PASSWORD=guest
-
-# Logging
+# Logging level (DEBUG, INFO, WARNING, ERROR)
 LOG_LEVEL=INFO
 ```
 
@@ -40,31 +36,36 @@ LOG_LEVEL=INFO
 | `/optimize` | POST | Optimize single image |
 | `/optimize/batch` | POST | Optimize multiple images in batch |
 
+### Supported File Types
+
+- JPEG (.jpg, .jpeg)
+- PNG (.png)
+- GIF (.gif)
+- WebP (.webp)
+- BMP (.bmp)
+- TIFF (.tiff, .tif)
+
+Maximum file size: 50MB
+
 ### Request Examples
 
 **Single image optimization:**
-```json
-POST /optimize
-Content-Type: multipart/form-data
-
-image: <binary image data>
+```bash
+curl -F "file=@image.jpg" http://localhost:8004/optimize
 ```
 
 **Batch optimization:**
-```json
-POST /optimize/batch
-Content-Type: multipart/form-data
-
-images: [<binary image data>, <binary image data>, ...]
+```bash
+curl -F "files=@image1.jpg" -F "files=@image2.png" http://localhost:8004/optimize/batch
 ```
 
 ### Response Format
 
 ```json
 {
-  "status": "success",
-  "image_path": "/mnt/mediawall/mediawall/image-optimizer/images/optimized_image.jpg",
-  "dimensions": [2560, 1440]
+  "path": "/data/images/image_optimized.jpg",
+  "width": 2560,
+  "height": 1440
 }
 ```
 
@@ -84,9 +85,9 @@ uvicorn src.app:app --reload --port 8000
 # Build
 docker build -t image-optimizer .
 
-# Run
+# Run with volume mount
 docker run -p 8004:8000 \
-  -v /path/to/samba:/mnt/mediawall/mediawall/image-optimizer/images \
+  -v /path/to/storage:/data/images \
   image-optimizer
 ```
 
@@ -96,6 +97,7 @@ docker run -p 8004:8000 \
 - **Pillow** - Image processing
 - **python-multipart** - Multipart form data handling
 - **pydantic** - Data validation
+- **pydantic-settings** - Environment configuration
 
 ## Service Port
 

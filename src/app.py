@@ -2,11 +2,20 @@
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from .config import get_settings
+from .constants import (
+    ALLOWED_CONTENT_TYPES,
+    ALLOWED_EXTENSIONS,
+    APP_NAME,
+    APP_VERSION,
+    MAX_FILE_SIZE_BYTES,
+    OUTPUT_PATH,
+)
 from .models import (
     BatchProcessResponse,
     HealthResponse,
@@ -16,45 +25,92 @@ from .models import (
 from .ops import process_image
 
 # Configure logging
+settings = get_settings()
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
+
+def validate_file(file: UploadFile) -> None:
+    """Validate uploaded file type and size.
+    
+    Args:
+        file: The uploaded file to validate
+        
+    Raises:
+        HTTPException: If validation fails
+    """
+    # Check content type
+    if file.content_type and file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}",
+        )
+    
+    # Check file extension
+    if file.filename:
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext and ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file extension: {ext}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+
+
+async def validate_file_size(file: UploadFile) -> bytes:
+    """Read and validate file size.
+    
+    Args:
+        file: The uploaded file to read
+        
+    Returns:
+        The file contents as bytes
+        
+    Raises:
+        HTTPException: If file is too large
+    """
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large: {len(contents)} bytes. Maximum: {MAX_FILE_SIZE_BYTES} bytes ({MAX_FILE_SIZE_BYTES // 1024 // 1024}MB)",
+        )
+    return contents
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup/shutdown."""
+    # Startup
+    logger.info(f"{APP_NAME} v{APP_VERSION} starting")
+    logger.info(f"Output path: {OUTPUT_PATH}")
+    logger.info(f"Output path exists: {os.path.exists(OUTPUT_PATH)}")
+    logger.info(f"Target dimensions: {settings.target_width}x{settings.target_height}")
+    
+    if not os.path.exists(OUTPUT_PATH):
+        logger.warning(f"Output path {OUTPUT_PATH} does not exist - will be created on first write")
+    
+    yield
+    
+    # Shutdown
+    logger.info(f"{APP_NAME} shutting down")
+
+
 app = FastAPI(
     title="Image Optimizer",
-    description="HTTP API that resizes/composites images to 2560x1440 and saves to Samba share",
-    version="1.0.0",
+    description="HTTP API that resizes/composites images to 2560x1440 and saves to storage",
+    version=APP_VERSION,
+    lifespan=lifespan,
 )
-
-# Log settings on startup
-@app.on_event("startup")
-async def startup_event():
-    logger.info("=== Image Optimizer Starting ===")
-    settings = get_settings()
-    logger.info(f"Output path configured: {settings.output_path}")
-    logger.info(f"Checking if output path exists: {os.path.exists(settings.output_path)}")
-    logger.info(f"Checking if output path is writable: {os.access(settings.output_path, os.W_OK) if os.path.exists(settings.output_path) else 'N/A - path does not exist'}")
-    
-    # List mount points
-    logger.info("=== Mount points ===")
-    try:
-        with open('/proc/mounts', 'r') as f:
-            for line in f:
-                if '/data' in line or '/mnt' in line:
-                    logger.info(line.strip())
-    except Exception as e:
-        logger.info(f"Could not read mounts: {e}")
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return HealthResponse(status="healthy", version="1.0.0")
+    return HealthResponse(status="healthy", version=APP_VERSION)
 
 
 @app.post("/optimize", response_model=ImageProcessResponse)
@@ -65,26 +121,25 @@ async def optimize_image(
     """
     Optimize a single image.
 
-    Resizes and composites the image to 2560x1440, saves to Samba share,
+    Resizes and composites the image to target dimensions, saves to storage,
     and returns the path to the processed image.
     """
+    # Validate file
+    validate_file(file)
+    image_data = await validate_file_size(file)
+
+    # Determine output filename
+    output_filename = filename
+    if output_filename is None and file.filename:
+        base_name = os.path.splitext(file.filename)[0]
+        output_filename = f"{base_name}_optimized.jpg"
+
     try:
-        # Read uploaded file
-        image_data = await file.read()
-
-        # Determine output filename
-        output_filename = filename
-        if output_filename is None and file.filename:
-            # Use original filename with modified extension
-            base_name = os.path.splitext(file.filename)[0]
-            output_filename = f"{base_name}_optimized.jpg"
-
-        # Process the image
         path, width, height = process_image(image_data, filename=output_filename)
-
+        logger.info(f"Processed image: {file.filename} -> {path}")
         return ImageProcessResponse(path=path, width=width, height=height)
-
     except Exception as e:
+        logger.error(f"Failed to process image {file.filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Image processing failed: {str(e)}")
 
 
@@ -95,7 +150,7 @@ async def optimize_images_batch(
     """
     Optimize multiple images in batch.
 
-    Resizes and composites each image to 2560x1440, saves to Samba share,
+    Resizes and composites each image to target dimensions, saves to storage,
     and returns the paths to all processed images. Continues processing
     remaining files if one fails.
     """
@@ -104,8 +159,9 @@ async def optimize_images_batch(
 
     for file in files:
         try:
-            # Read uploaded file
-            image_data = await file.read()
+            # Validate file
+            validate_file(file)
+            image_data = await validate_file_size(file)
 
             # Determine output filename
             output_filename = None
@@ -113,17 +169,18 @@ async def optimize_images_batch(
                 base_name = os.path.splitext(file.filename)[0]
                 output_filename = f"{base_name}_optimized.jpg"
 
-            # Process the image
             path, width, height = process_image(image_data, filename=output_filename)
-
+            logger.info(f"Processed image: {file.filename} -> {path}")
             results.append(ImageProcessResponse(path=path, width=width, height=height))
 
-        except Exception as e:
+        except HTTPException as e:
             errors.append(
-                ImageProcessError(
-                    filename=file.filename or "unknown",
-                    error=str(e),
-                )
+                ImageProcessError(filename=file.filename or "unknown", error=e.detail)
+            )
+        except Exception as e:
+            logger.error(f"Failed to process image {file.filename}: {e}")
+            errors.append(
+                ImageProcessError(filename=file.filename or "unknown", error=str(e))
             )
 
     return BatchProcessResponse(
@@ -136,6 +193,4 @@ async def optimize_images_batch(
 
 if __name__ == "__main__":
     import uvicorn
-
-    settings = get_settings()
-    uvicorn.run(app, host=settings.api_host, port=settings.api_port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

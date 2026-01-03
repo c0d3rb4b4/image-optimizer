@@ -16,7 +16,7 @@ class ImageProcessRequest(BaseModel):
 class ImageProcessResponse(BaseModel):
     """Response model for processed image."""
 
-    path: str = Field(description="Path to the processed image on the samba share")
+    path: str = Field(description="Path to the processed image in storage")
     width: int = Field(description="Width of the processed image")
     height: int = Field(description="Height of the processed image")
 
