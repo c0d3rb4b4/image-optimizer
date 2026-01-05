@@ -45,6 +45,8 @@ def validate_file(file: UploadFile) -> None:
     """
     # Check content type
     if file.content_type and file.content_type not in ALLOWED_CONTENT_TYPES:
+        logger.warning("Invalid file content type: filename=%s, content_type=%s, allowed=%s", 
+                      file.filename, file.content_type, ALLOWED_CONTENT_TYPES)
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type: {file.content_type}. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}",
@@ -54,6 +56,8 @@ def validate_file(file: UploadFile) -> None:
     if file.filename:
         ext = os.path.splitext(file.filename)[1].lower()
         if ext and ext not in ALLOWED_EXTENSIONS:
+            logger.warning("Invalid file extension: filename=%s, extension=%s, allowed=%s", 
+                          file.filename, ext, ALLOWED_EXTENSIONS)
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid file extension: {ext}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
@@ -73,11 +77,17 @@ async def validate_file_size(file: UploadFile) -> bytes:
         HTTPException: If file is too large
     """
     contents = await file.read()
-    if len(contents) > MAX_FILE_SIZE_BYTES:
+    file_size = len(contents)
+    if file_size > MAX_FILE_SIZE_BYTES:
+        logger.warning("File too large: filename=%s, size=%d bytes (%.1f MB), max=%d bytes (%.1f MB)", 
+                      file.filename, file_size, file_size / 1024 / 1024, 
+                      MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_BYTES / 1024 / 1024)
         raise HTTPException(
             status_code=400,
-            detail=f"File too large: {len(contents)} bytes. Maximum: {MAX_FILE_SIZE_BYTES} bytes ({MAX_FILE_SIZE_BYTES // 1024 // 1024}MB)",
+            detail=f"File too large: {file_size} bytes. Maximum: {MAX_FILE_SIZE_BYTES} bytes ({MAX_FILE_SIZE_BYTES // 1024 // 1024}MB)",
         )
+    logger.debug("File size validated: filename=%s, size=%d bytes (%.1f KB)", 
+                file.filename, file_size, file_size / 1024)
     return contents
 
 
@@ -85,18 +95,22 @@ async def validate_file_size(file: UploadFile) -> bytes:
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
     # Startup
-    logger.info(f"{APP_NAME} v{APP_VERSION} starting")
-    logger.info(f"Output path: {OUTPUT_PATH}")
-    logger.info(f"Output path exists: {os.path.exists(OUTPUT_PATH)}")
-    logger.info(f"Target dimensions: {settings.target_width}x{settings.target_height}")
+    logger.info("%s v%s starting", APP_NAME, APP_VERSION)
+    logger.info("Output path: %s", OUTPUT_PATH)
+    logger.info("Output path exists: %s", os.path.exists(OUTPUT_PATH))
+    logger.info("Target dimensions: %dx%d", settings.target_width, settings.target_height)
+    logger.info("JPEG quality: %d", settings.jpeg_quality)
+    logger.info("Max file size: %d bytes (%.1f MB)", MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_BYTES / 1024 / 1024)
+    logger.info("Allowed content types: %s", ALLOWED_CONTENT_TYPES)
+    logger.info("Allowed extensions: %s", ALLOWED_EXTENSIONS)
     
     if not os.path.exists(OUTPUT_PATH):
-        logger.warning(f"Output path {OUTPUT_PATH} does not exist - will be created on first write")
+        logger.warning("Output path does not exist: %s - will be created on first write", OUTPUT_PATH)
     
     yield
     
     # Shutdown
-    logger.info(f"{APP_NAME} shutting down")
+    logger.info("%s v%s shutting down", APP_NAME, APP_VERSION)
 
 
 app = FastAPI(
@@ -124,6 +138,9 @@ async def optimize_image(
     Resizes and composites the image to target dimensions, saves to storage,
     and returns the path to the processed image.
     """
+    logger.debug("Received optimization request: filename=%s, content_type=%s, custom_filename=%s", 
+                file.filename, file.content_type, filename or 'auto-generated')
+    
     # Validate file
     validate_file(file)
     image_data = await validate_file_size(file)
@@ -135,11 +152,15 @@ async def optimize_image(
         output_filename = f"{base_name}_optimized.jpg"
 
     try:
+        logger.debug("Processing image: filename=%s, size=%d bytes (%.1f KB), output=%s", 
+                    file.filename, len(image_data), len(image_data) / 1024, output_filename)
         path, width, height = process_image(image_data, filename=output_filename)
-        logger.info(f"Processed image: {file.filename} -> {path}")
+        logger.info("Image processed successfully: input=%s, output=%s, dimensions=%dx%d, input_size=%d bytes", 
+                   file.filename, path, width, height, len(image_data))
         return ImageProcessResponse(path=path, width=width, height=height)
     except Exception as e:
-        logger.error(f"Failed to process image {file.filename}: {e}")
+        logger.error("Failed to process image: filename=%s, size=%d bytes, error=%s", 
+                    file.filename, len(image_data), str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=f"Image processing failed: {str(e)}")
 
 
@@ -154,11 +175,15 @@ async def optimize_images_batch(
     and returns the paths to all processed images. Continues processing
     remaining files if one fails.
     """
+    logger.info("Batch optimization request: %d files", len(files))
     results = []
     errors = []
 
-    for file in files:
+    for idx, file in enumerate(files, 1):
         try:
+            logger.debug("Processing batch file %d/%d: filename=%s, content_type=%s", 
+                        idx, len(files), file.filename, file.content_type)
+            
             # Validate file
             validate_file(file)
             image_data = await validate_file_size(file)
@@ -170,19 +195,26 @@ async def optimize_images_batch(
                 output_filename = f"{base_name}_optimized.jpg"
 
             path, width, height = process_image(image_data, filename=output_filename)
-            logger.info(f"Processed image: {file.filename} -> {path}")
+            logger.info("Batch file %d/%d processed: input=%s, output=%s, dimensions=%dx%d", 
+                       idx, len(files), file.filename, path, width, height)
             results.append(ImageProcessResponse(path=path, width=width, height=height))
 
         except HTTPException as e:
+            logger.warning("Batch file %d/%d validation failed: filename=%s, error=%s", 
+                          idx, len(files), file.filename or "unknown", e.detail)
             errors.append(
                 ImageProcessError(filename=file.filename or "unknown", error=e.detail)
             )
         except Exception as e:
-            logger.error(f"Failed to process image {file.filename}: {e}")
+            logger.error("Batch file %d/%d processing failed: filename=%s, error=%s", 
+                        idx, len(files), file.filename or "unknown", str(e), exc_info=True)
             errors.append(
                 ImageProcessError(filename=file.filename or "unknown", error=str(e))
             )
 
+    logger.info("Batch processing complete: total=%d, successful=%d, failed=%d", 
+               len(files), len(results), len(errors))
+    
     return BatchProcessResponse(
         images=results,
         errors=errors,
