@@ -1,0 +1,45 @@
+meta {
+  name: POST optimize
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{image_optimizer_url}}/optimize
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(C:\Users\lalit\Downloads\001_1107.jpg)
+}
+
+docs {
+  # Optimize Single Image
+  
+  Optimize and resize a single image to 2560×1440 with center-crop.
+  
+  ## Request
+  
+  - **Field:** `image` (file upload)
+  - **Supported formats:** JPEG, PNG, WebP, etc.
+  
+  ## Response
+  
+  ```json
+  {
+    "status": "success",
+    "image_path": "/mnt/mediawall/mediawall/image-optimizer/images/optimized_image_20240101_120000.jpg",
+    "dimensions": [2560, 1440]
+  }
+  ```
+  
+  ## Error Response
+  
+  ```json
+  {
+    "status": "error",
+    "message": "Invalid image format"
+  }
+  ```
+}
