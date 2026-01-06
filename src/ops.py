@@ -159,6 +159,26 @@ def process_image(
     # Open image from bytes
     try:
         image = Image.open(BytesIO(image_data))
+        # Handle EXIF orientation
+        try:
+            from PIL import ExifTags
+            exif = image._getexif() if hasattr(image, '_getexif') else None
+            if exif:
+                for tag, value in exif.items():
+                    if ExifTags.TAGS.get(tag) == "Orientation":
+                        # Rotate image based on EXIF orientation
+                        if value == 3:  # 180 degrees
+                            image = image.rotate(180, expand=True)
+                        elif value == 6:  # 270 degrees (90 CW)
+                            image = image.rotate(270, expand=True)
+                        elif value == 8:  # 90 degrees (270 CW)
+                            image = image.rotate(90, expand=True)
+                        logger.debug("Applied EXIF rotation: orientation=%d, new_size=%dx%d", 
+                                   value, image.width, image.height)
+                        break
+        except Exception as e:
+            logger.debug("Could not read EXIF orientation: error=%s", str(e))
+        
         logger.debug("Opened image: format=%s, mode=%s, size=%dx%d", 
                     image.format, image.mode, image.width, image.height)
     except Exception as e:
