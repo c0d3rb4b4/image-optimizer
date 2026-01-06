@@ -138,6 +138,10 @@ def process_image(
 ) -> tuple[str, int, int]:
     """
     Process an image: resize, composite, and save.
+    
+    Automatically detects image orientation:
+    - Landscape images: processed for full canvas (target_width x target_height)
+    - Portrait images: processed for half canvas (target_width/2 x target_height)
 
     Args:
         image_data: Raw image bytes
@@ -161,17 +165,32 @@ def process_image(
         logger.error("Failed to open image: input_size=%d bytes, error=%s", input_size, str(e))
         raise
 
+    # Detect orientation and determine target dimensions
+    is_portrait = image.height > image.width
+    if is_portrait:
+        # Portrait: use half the canvas width, same height
+        target_width = settings.target_width // 2
+        target_height = settings.target_height
+        logger.debug("Detected portrait orientation: using half-canvas dimensions %dx%d", 
+                    target_width, target_height)
+    else:
+        # Landscape: use full canvas dimensions
+        target_width = settings.target_width
+        target_height = settings.target_height
+        logger.debug("Detected landscape orientation: using full-canvas dimensions %dx%d", 
+                    target_width, target_height)
+
     # Resize and composite
     try:
         processed = resize_and_composite(
             image,
-            target_width=settings.target_width,
-            target_height=settings.target_height,
+            target_width=target_width,
+            target_height=target_height,
             background_color=DEFAULT_BACKGROUND_COLOR,
         )
     except Exception as e:
         logger.error("Failed to resize/composite image: input=%dx%d, target=%dx%d, error=%s", 
-                    image.width, image.height, settings.target_width, settings.target_height, str(e))
+                    image.width, image.height, target_width, target_height, str(e))
         raise
 
     # Save to storage mount
@@ -182,7 +201,7 @@ def process_image(
                     processed.width, processed.height, filename or 'auto', str(e))
         raise
 
-    logger.info("Image processing complete: input_size=%d bytes, output=%s, dimensions=%dx%d", 
-               input_size, output_path, processed.width, processed.height)
+    logger.info("Image processing complete: input_size=%d bytes, orientation=%s, output=%s, dimensions=%dx%d", 
+               input_size, "portrait" if is_portrait else "landscape", output_path, processed.width, processed.height)
     
     return output_path, processed.width, processed.height
